@@ -1,33 +1,28 @@
 import "dotenv/config";
 import express, { json } from "express";
-import mariadb from 'mariadb';
-import webpush from 'web-push';
-import cors from 'cors';
-import { apiMiddleware, logError, logMessage } from "./utils/logger.js";
+import webpush from "web-push";
+import cors from "cors";
+import { logData, logError } from "@svkruik/sk-platform-formatters";
+import { database } from "@svkruik/sk-platform-db-conn";
 const app = express();
 app.use(json());
 webpush.setVapidDetails(process.env.VAPID_EMAIL, process.env.VAPID_PUBLIC_KEY, process.env.VAPID_PRIVATE_KEY);
 
 // CORS
 const corsOptions = {
-    origin: [process.env.SERVER_CORS],
+    origin: process.env.SERVER_CORS.split(","),
     optionsSuccessStatus: 200
 };
 app.use(cors(corsOptions));
-app.use(apiMiddleware);
-
-// Database
-const database = mariadb.createPool({
-    host: process.env.DB_HOST,
-    port: parseInt(process.env.DB_PORT),
-    database: process.env.DB_DATABASE,
-    user: process.env.DB_USERNAME,
-    password: process.env.DB_PASSWORD,
-    multipleStatements: true
+app.use((req, res, next) => {
+    if (!req.headers["authorization"] || req.headers["authorization"] !== `Bearer ${process.env.SERVER_KEY}`) return res.sendStatus(401);
+    logData(`API Request || Agent: ${req.headers["user-agent"]} || HTTP ${req.httpVersion} ${req.method} ${req.url}`, "info");
+    next();
 });
 
 // Create subscription
 app.post("/subscribe", async (req, res) => {
+    const connection = await database("central");
     try {
         // Setup
         const payload = req.body;
@@ -42,12 +37,12 @@ app.post("/subscribe", async (req, res) => {
 
         try {
             // New Subscription
-            await database.query("INSERT INTO lumen_user (endpoint, expirationTime, p256dh, auth, username) VALUES (?, ?, ?, ?, ?);",
+            await connection.query("INSERT INTO lumen_user (endpoint, expiration_time, p256dh, auth, username) VALUES (?, ?, ?, ?, ?);",
                 [newSubscription.endpoint, newSubscription.expirationTime || null, newSubscription.p256dh, newSubscription.auth, newSubscription.username]);
         } catch (error) {
             // Update Existing Subscription
             if (error.code === "ER_DUP_ENTRY") {
-                await database.query("UPDATE lumen_user SET endpoint = ?, expirationTime = ?, p256dh = ?, auth = ? WHERE username = ?;",
+                await connection.query("UPDATE lumen_user SET endpoint = ?, expiration_time = ?, p256dh = ?, auth = ? WHERE username = ?;",
                     [newSubscription.endpoint, newSubscription.expirationTime || null, newSubscription.p256dh, newSubscription.auth, newSubscription.username]);
             } else throw error;
         }
@@ -60,12 +55,13 @@ app.post("/subscribe", async (req, res) => {
 
 // Send notification
 app.post("/send/:username", async (req, res) => {
+    const connection = await database("central");
     try {
         // Setup
         const body = req.body;
         if (body.title === undefined || body.message === undefined) return res.sendStatus(400);
         if (!req.params.username) return res.sendStatus(400);
-        let data = await database.query("SELECT * FROM lumen_user WHERE username = ?;", [req.params.username]);
+        let data = await connection.query("SELECT * FROM lumen_user WHERE username = ?;", [req.params.username]);
         if (data.length === 0) return res.sendStatus(404);
         data = data[0];
 
@@ -83,12 +79,12 @@ app.post("/send/:username", async (req, res) => {
         await webpush.sendNotification(payload, JSON.stringify({
             title: req.body.title,
             message: req.body.message,
-            icon: "https://files.stefankruik.com/Products/100/Lumen.png"
+            icon: req.body.icon || "https://files.stefankruik.com/Products/100/Lumen.png"
         }));
         return res.json({ data: "Sent" });
     } catch (error) {
         if (error.statusCode === 410) {
-            await database.query("DELETE FROM lumen_user WHERE username = ?;", [req.params.username]);
+            await connection.query("DELETE FROM lumen_user WHERE username = ?;", [req.params.username]);
             return res.json({ data: "Expired. Re-register." });
         } else {
             logError(error);
@@ -107,6 +103,4 @@ app.post("*", async (_req, res) => {
 
 // Init
 const port = process.env.SERVER_PORT;
-app.listen(port, () => {
-    logMessage(`API server listening on port ${port}.`, "info");
-});
+app.listen(port, () => logData(`Lumen API server listening on port ${process.env.SERVER_PORT}`, "info"));

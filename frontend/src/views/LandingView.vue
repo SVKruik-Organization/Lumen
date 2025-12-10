@@ -31,6 +31,7 @@ export default defineComponent({
     <main class="content-parent flex-col">
         <article class="flex-col">
             <h2>Push Notification Test</h2>
+            <p>Keep your console open to see subscription and notification logs.</p>
         </article>
         <form class=flex-col>
             <strong>Subscribing</strong>

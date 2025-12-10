@@ -5,7 +5,7 @@
     "author": "Stefan Kruik",
     "type": "module",
     "scripts": {
-        "dev": "vite --port 9093",
+        "dev": "vite",
         "build": "vite build"
     },
     "dependencies": {

@@ -14,7 +14,7 @@
     "@svkruik/sk-platform-db-conn": "0.0.5",
     "cors": "^2.8.5",
     "dotenv": "16.4.5",
-    "express": "4.19.2",
+    "express": "4.20.0",
     "mariadb": "3.3.1",
     "web-push": "3.6.7"
   },
